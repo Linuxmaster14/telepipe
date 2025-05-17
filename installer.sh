@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Telepipe Installer Script - Version 1.0.0
+# Telepipe Installer Script - Version 1.0.1
 
 # Clear screen
 clear
@@ -294,10 +294,11 @@ chmod 600 /etc/telepipe/config
 # Test if curl is working
 echo
 echo "Testing connection to Telegram API..."
-if curl -s -o /dev/null -w "%{http_code}" "https://api.telegram.org/bot${BOT_TOKEN}/getMe" | grep -q "200"; then
+if curl -s -m 10 -o /dev/null -w "%{http_code}" "https://api.telegram.org/bot${BOT_TOKEN}/getMe" | grep -q "200"; then
   echo "Connection successful! Bot token appears valid."
 else
-  echo "Warning: Could not verify bot token. Please check your token and try again."
+  echo "Warning: Could not verify bot token. Continuing installation anyway."
+  echo "Please check your network connection and bot token later."
 fi
 
 echo
