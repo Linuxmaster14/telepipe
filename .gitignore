@@ -1,0 +1,11 @@
+# Ignore local files
+*.log
+*.bak
+*.tmp
+.DS_Store
+.idea/
+.vscode/
+
+# Ignore environment-specific configs
+/config.local
+/local_test

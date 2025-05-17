@@ -1,0 +1,21 @@
+# Telepipe Configuration File - EXAMPLE
+
+# Your Telegram Bot Token
+# Get it from BotFather (https://t.me/botfather)
+BOT_TOKEN="YOUR_BOT_TOKEN_HERE"
+
+# Telegram Chat ID
+# For channels/groups with -100 prefix, use the full ID including -100
+CHAT_ID="YOUR_CHAT_ID_HERE"
+
+# Maximum message length before sending as a file (in characters)
+# Default: 4096
+MAX_LEN=4096
+
+# Request timeout in seconds
+# Default: 5
+TIMEOUT=5
+
+# Whether to disable link previews in Telegram (true/false)
+# Default: true
+DISABLE_LINK_PREVIEW=true
