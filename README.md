@@ -5,6 +5,7 @@ A simple command-line utility to send messages or files to Telegram chat directl
 ## Features
 
 - Send messages to Telegram channel/chat/group directly from command line
+- Interactive shell mode for continuous messaging
 - Automatically switch between message and file mode based on content length
 - Generate shareable Telegram links
 - Quiet/Silent mode for scripting
@@ -52,6 +53,9 @@ cat logfile.txt | telepipe
 # Send a message without displaying the URL (quiet mode)
 echo "Notification" | telepipe --quiet
 
+# Start an interactive messaging session
+telepipe --interactive
+
 # Use it in your scripts
 backup_db() {
   # backup logic here
@@ -74,6 +78,7 @@ monitoring_check() {
 ## Options
 
 - `-h, --help` - Show this help message and exit
+- `-i, --interactive` - Enter interactive mode for continuous messaging
 - `-q, --quiet` - Quiet mode - suppress output (except errors)
 - `-v, --version` - Show version information and exit
 
