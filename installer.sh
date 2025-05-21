@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Telepipe Installer Script - Version 1.0.1
+# Telepipe Installer Script - Version 1.0.2
 
 # Clear screen
 clear
@@ -128,10 +128,13 @@ cat > /usr/local/bin/telepipe << 'EOF'
 #!/bin/bash
 
 # Telepipe: Send messages to Telegram from your terminal
-VERSION="1.0.0"
+VERSION="1.0.2"
 
 # Configuration file location
 CONFIG_FILE="/etc/telepipe/config"
+
+# Initialize quiet mode flag
+QUIET_MODE=false
 
 # Display help message
 show_help() {
@@ -147,12 +150,14 @@ the content to Telegram.
 
 Options:
   -h, --help     Show this help message and exit
+  -q, --quiet    Quiet mode - suppress output (except errors)
   -v, --version  Show version information and exit
 
 Examples:
   echo "Hello World" | telepipe
   uptime | telepipe
   cat logfile.txt | telepipe
+  command | telepipe --quiet  # No output if successful
 
 Configuration: 
   Edit settings in ${CONFIG_FILE}
@@ -166,8 +171,8 @@ show_version() {
     exit 0
 }
 
-# Check for command line options
-if [ "$#" -gt 0 ]; then
+# Parse command line options
+while [ "$#" -gt 0 ]; do
     case "$1" in
         -h|--help)
             show_help
@@ -175,13 +180,17 @@ if [ "$#" -gt 0 ]; then
         -v|--version)
             show_version
             ;;
+        -q|--quiet)
+            QUIET_MODE=true
+            shift
+            ;;
         *)
             echo "Error: Unknown option '$1'" >&2
             echo "Try 'telepipe --help' for more information." >&2
             exit 1
             ;;
     esac
-fi
+done
 
 # Check if there's input on stdin
 if [ -t 0 ]; then
@@ -235,14 +244,16 @@ process_response() {
     
     if [[ -n "$id" ]]; then
       # Generate URL based on chat ID format
-      if [[ $CHAT_ID == @* ]]; then
-        echo "https://t.me/${CHAT_ID#@}/${id}"
-      elif [[ $CHAT_ID == -100* ]]; then
-        local channel_num=${CHAT_ID#-100}
-        echo "https://t.me/c/${channel_num}/${id}"
-      else
-        # If it's a direct message or unsupported format, just return success
-        echo "Message sent successfully (ID: ${id})"
+      if [[ $QUIET_MODE == false ]]; then
+        if [[ $CHAT_ID == @* ]]; then
+          echo "https://t.me/${CHAT_ID#@}/${id}"
+        elif [[ $CHAT_ID == -100* ]]; then
+          local channel_num=${CHAT_ID#-100}
+          echo "https://t.me/c/${channel_num}/${id}"
+        else
+          # If it's a direct message or unsupported format, just return success
+          echo "Message sent successfully (ID: ${id})"
+        fi
       fi
       return 0
     fi
@@ -308,6 +319,7 @@ echo "Usage:"
 echo "  echo \"Hello World\" | telepipe"
 echo "  cat file.txt | telepipe"
 echo "  command | telepipe"
+echo "  command | telepipe --quiet  # No output if successful"
 echo
 echo "Configuration file: /etc/telepipe/config"
 echo "Binary location: /usr/local/bin/telepipe"
