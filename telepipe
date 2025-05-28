@@ -131,11 +131,29 @@ fi
 : "${TIMEOUT:=5}"
 : "${DISABLE_LINK_PREVIEW:=true}"
 
-# Escape special characters for MarkdownV2
+# Escape special characters for MarkdownV2 (only non-formatting characters)
 escape_markdownv2() {
     local text="$1"
-    # Use sed to escape MarkdownV2 special characters
-    echo "$text" | sed 's/\([_*\[\]()~`>#+=|{}.!-]\)/\\\1/g'
+    # Only escape characters that are NOT part of intended formatting
+    # We'll escape: . ! - = | { } + # > ~ ( ) [ ]
+    # We'll NOT escape: * _ ` (these are used for formatting)
+    text="${text//\\/\\\\}"   # Escape backslashes first
+    text="${text//\./\\.}"    # Escape period/dot
+    text="${text//!/\\!}"     # Escape exclamation mark
+    text="${text//-/\\-}"     # Escape minus/hyphen
+    text="${text//=/\\=}"     # Escape equals
+    text="${text//|/\\|}"     # Escape pipe
+    text="${text//\{/\\{}"    # Escape left brace
+    text="${text//\}/\\}"     # Escape right brace
+    text="${text//+/\\+}"     # Escape plus
+    text="${text//#/\\#}"     # Escape hash
+    text="${text//>/\\>}"     # Escape greater than
+    text="${text//~/\\~}"     # Escape tilde
+    text="${text//\(/\\(}"    # Escape left parenthesis
+    text="${text//\)/\\)}"    # Escape right parenthesis
+    text="${text//\[/\\[}"    # Escape left bracket
+    text="${text//\]/\\]}"    # Escape right bracket
+    echo "$text"
 }
 
 # Prepare message text based on formatting mode
