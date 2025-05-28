@@ -9,6 +9,7 @@ CONFIG_FILE="/etc/telepipe/config"
 # Initialize mode flags
 QUIET_MODE=false
 INTERACTIVE_MODE=false
+FORMAT_MODE=""
 
 # Display help message
 show_help() {
@@ -27,6 +28,12 @@ Options:
   -i, --interactive Enter interactive mode for multi-line messaging
   -q, --quiet       Quiet mode - suppress output (except errors)
   -v, --version     Show version information and exit
+  --format MODE     Set message formatting mode: markdown, html, or none
+
+Formatting Modes:
+  markdown          Use MarkdownV2 formatting (supports *bold*, _italic_, \`code\`, \`\`\`code blocks\`\`\`)
+  html              Use HTML formatting (supports <b>bold</b>, <i>italic</i>, <code>code</code>, <pre>code blocks</pre>)
+  none              Send plain text without any formatting (default)
 
 Examples:
   echo "Hello World" | telepipe
@@ -34,6 +41,11 @@ Examples:
   cat logfile.txt | telepipe
   command | telepipe --quiet  # No output if successful
   telepipe --interactive      # Start interactive multi-line messaging session
+  echo "*Bold text* and _italic_" | telepipe --format markdown
+  echo "<b>Bold</b> and <i>italic</i>" | telepipe --format html
+  echo "Inline \`code\` and block:" | telepipe --format markdown
+  echo -e "\`\`\`bash\necho 'Hello'\n\`\`\`" | telepipe --format markdown
+  echo "<code>inline code</code> and <pre>code block</pre>" | telepipe --format html
 
 Configuration: 
   Edit settings in ${CONFIG_FILE}
@@ -63,6 +75,22 @@ while [ "$#" -gt 0 ]; do
         -i|--interactive)
             INTERACTIVE_MODE=true
             shift
+            ;;
+        --format)
+            if [ -z "$2" ] || [[ "$2" == -* ]]; then
+                echo "Error: --format requires a value (markdown, html, or none)" >&2
+                exit 1
+            fi
+            case "$2" in
+                markdown|html|none)
+                    FORMAT_MODE="$2"
+                    ;;
+                *)
+                    echo "Error: Invalid format mode '$2'. Use markdown, html, or none." >&2
+                    exit 1
+                    ;;
+            esac
+            shift 2
             ;;
         *)
             echo "Error: Unknown option '$1'" >&2
@@ -102,6 +130,29 @@ fi
 : "${MAX_LEN:=4096}"
 : "${TIMEOUT:=5}"
 : "${DISABLE_LINK_PREVIEW:=true}"
+
+# Escape special characters for MarkdownV2
+escape_markdownv2() {
+    local text="$1"
+    # Use sed to escape MarkdownV2 special characters
+    echo "$text" | sed 's/\([_*\[\]()~`>#+=|{}.!-]\)/\\\1/g'
+}
+
+# Prepare message text based on formatting mode
+prepare_message_text() {
+    local text="$1"
+    case "$FORMAT_MODE" in
+        markdown)
+            escape_markdownv2 "$text"
+            ;;
+        html|none|"")
+            echo "$text"
+            ;;
+        *)
+            echo "$text"
+            ;;
+    esac
+}
 
 # Process response and generate URL
 process_response() {
@@ -148,12 +199,15 @@ send_message() {
   local response=""
   local curl_status=0
   
-  if [[ ${#message_text} -gt $MAX_LEN ]]; then
+  # Apply formatting to message text
+  local formatted_text=$(prepare_message_text "$message_text")
+  
+  if [[ ${#formatted_text} -gt $MAX_LEN ]]; then
     # For long messages, send as file
     # Use a more secure random string generation
     random_string=$(head -c 16 /dev/urandom | md5sum | head -c 8)
     tmpfile="/tmp/tgmsg.${random_string}.txt"
-    echo "$message_text" > "$tmpfile"
+    echo "$formatted_text" > "$tmpfile"
     
     response=$(curl -s --connect-timeout $TIMEOUT --max-time $TIMEOUT -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
       -F chat_id="${CHAT_ID}" \
@@ -168,10 +222,22 @@ send_message() {
       disable_preview="-d disable_web_page_preview=true"
     fi
     
+    # Add parse_mode parameter if formatting is enabled
+    parse_mode_param=""
+    case "$FORMAT_MODE" in
+        markdown)
+            parse_mode_param="-d parse_mode=MarkdownV2"
+            ;;
+        html)
+            parse_mode_param="-d parse_mode=HTML"
+            ;;
+    esac
+    
     response=$(curl -s --connect-timeout $TIMEOUT --max-time $TIMEOUT -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
       -d chat_id="${CHAT_ID}" \
-      --data-urlencode text="${message_text}" \
-      $disable_preview)
+      --data-urlencode text="${formatted_text}" \
+      $disable_preview \
+      $parse_mode_param)
     curl_status=$?
   fi
 
@@ -191,6 +257,8 @@ interactive_mode() {
   echo "  /help - Show this help message"
   echo "  /send - Send the current message buffer"
   echo "  /cancel - Cancel the current message"
+  echo "  /format MODE - Set formatting mode (markdown, html, none)"
+  echo "  /status - Show current formatting mode"
   echo "======================================="
   
   buffer=""
@@ -234,9 +302,19 @@ interactive_mode() {
       echo "  /help - Show this help message"
       echo "  /send - Send the current message buffer"
       echo "  /cancel - Cancel the current message"
+      echo "  /format MODE - Set formatting mode (markdown, html, none)"
+      echo "  /status - Show current formatting mode"
       echo ""
       echo "Compose your message across multiple lines."
       echo "Press Ctrl+D (EOF) or type /send to send."
+      echo ""
+      echo "Formatting examples:"
+      echo "  markdown: *bold* _italic_ \`inline code\`"
+      echo "  markdown: \`\`\`language"
+      echo "            code block"
+      echo "            \`\`\`"
+      echo "  html: <b>bold</b> <i>italic</i> <code>inline code</code>"
+      echo "  html: <pre>code block</pre>"
       continue
     elif [[ "$line" == "/send" ]]; then
       if [[ -n "$buffer" ]]; then
@@ -252,6 +330,25 @@ interactive_mode() {
       echo "Message canceled."
       buffer=""
       composing=false
+      continue
+    elif [[ "$line" == "/status" ]]; then
+      if [[ -n "$FORMAT_MODE" ]]; then
+        echo "Current formatting mode: $FORMAT_MODE"
+      else
+        echo "Current formatting mode: none (plain text)"
+      fi
+      continue
+    elif [[ "$line" =~ ^/format[[:space:]]+(.*) ]]; then
+      local mode="${BASH_REMATCH[1]}"
+      case "$mode" in
+        markdown|html|none)
+          FORMAT_MODE="$mode"
+          echo "Formatting mode set to: $mode"
+          ;;
+        *)
+          echo "Invalid format mode. Use: markdown, html, or none"
+          ;;
+      esac
       continue
     elif [[ "$line" == "/"* ]]; then
       echo "Unknown command: ${line:1}"
