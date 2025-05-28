@@ -10,6 +10,8 @@ CONFIG_FILE="/etc/telepipe/config"
 QUIET_MODE=false
 INTERACTIVE_MODE=false
 FORMAT_MODE=""
+SCHEDULE_TIME=""
+DELAY_SECONDS=""
 
 # Display help message
 show_help() {
@@ -29,6 +31,8 @@ Options:
   -q, --quiet       Quiet mode - suppress output (except errors)
   -v, --version     Show version information and exit
   --format MODE     Set message formatting mode: markdown, html, or none
+  --schedule TIME   Schedule message for specific time (YYYY-MM-DD HH:MM:SS)
+  --delay SECONDS   Delay message delivery by specified seconds
 
 Formatting Modes:
   markdown          Use MarkdownV2 formatting (supports *bold*, _italic_, \`code\`, \`\`\`code blocks\`\`\`)
@@ -46,6 +50,8 @@ Examples:
   echo "Inline \`code\` and block:" | telepipe --format markdown
   echo -e "\`\`\`bash\necho 'Hello'\n\`\`\`" | telepipe --format markdown
   echo "<code>inline code</code> and <pre>code block</pre>" | telepipe --format html
+  echo "Backup completed" | telepipe --delay 3600    # Send after 1 hour
+  echo "Meeting reminder" | telepipe --schedule "2025-05-28 15:30:00"
 
 Configuration: 
   Edit settings in ${CONFIG_FILE}
@@ -92,6 +98,26 @@ while [ "$#" -gt 0 ]; do
             esac
             shift 2
             ;;
+        --schedule)
+            if [ -z "$2" ] || [[ "$2" == -* ]]; then
+                echo "Error: --schedule requires a time value (YYYY-MM-DD HH:MM:SS)" >&2
+                exit 1
+            fi
+            SCHEDULE_TIME="$2"
+            shift 2
+            ;;
+        --delay)
+            if [ -z "$2" ] || [[ "$2" == -* ]]; then
+                echo "Error: --delay requires a number of seconds" >&2
+                exit 1
+            fi
+            if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                echo "Error: --delay must be a positive integer (seconds)" >&2
+                exit 1
+            fi
+            DELAY_SECONDS="$2"
+            shift 2
+            ;;
         *)
             echo "Error: Unknown option '$1'" >&2
             echo "Try 'telepipe --help' for more information." >&2
@@ -104,6 +130,12 @@ done
 if [ -t 0 ] && [ "$INTERACTIVE_MODE" = false ]; then
     # No stdin and not in interactive mode, show help
     show_help
+fi
+
+# Validate option combinations
+if [ "$INTERACTIVE_MODE" = true ] && ([ -n "$SCHEDULE_TIME" ] || [ -n "$DELAY_SECONDS" ]); then
+    echo "Error: Scheduling options (--schedule, --delay) cannot be used with --interactive mode" >&2
+    exit 1
 fi
 
 # Check if config exists
@@ -154,6 +186,88 @@ escape_markdownv2() {
     text="${text//\[/\\[}"    # Escape left bracket
     text="${text//\]/\\]}"    # Escape right bracket
     echo "$text"
+}
+
+# Validate schedule time format and convert to epoch
+validate_schedule_time() {
+    local schedule_time="$1"
+    
+    # Check if date command supports the input format
+    if command -v gdate >/dev/null 2>&1; then
+        # macOS with GNU date (brew install coreutils)
+        local epoch=$(gdate -d "$schedule_time" +%s 2>/dev/null)
+    else
+        # Try standard date command
+        local epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$schedule_time" +%s 2>/dev/null)
+        if [ -z "$epoch" ]; then
+            # Fallback: try different format parsing
+            epoch=$(date -d "$schedule_time" +%s 2>/dev/null)
+        fi
+    fi
+    
+    if [ -z "$epoch" ]; then
+        echo "Error: Invalid schedule time format. Use YYYY-MM-DD HH:MM:SS" >&2
+        return 1
+    fi
+    
+    local current_epoch=$(date +%s)
+    if [ "$epoch" -le "$current_epoch" ]; then
+        echo "Error: Schedule time must be in the future" >&2
+        return 1
+    fi
+    
+    echo "$epoch"
+    return 0
+}
+
+# Create scheduled message job
+create_scheduled_job() {
+    local message_text="$1"
+    local target_epoch="$2"
+    local current_epoch=$(date +%s)
+    local delay_seconds=$((target_epoch - current_epoch))
+    
+    # Create a background job
+    {
+        sleep "$delay_seconds"
+        # Re-execute telepipe without scheduling options
+        echo "$message_text" | "$0" --quiet ${FORMAT_MODE:+--format "$FORMAT_MODE"}
+    } &
+    
+    local job_pid=$!
+    local scheduled_time=$(date -r "$target_epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "@$target_epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
+    
+    if [ "$QUIET_MODE" = false ]; then
+        echo "Message scheduled for delivery at: $scheduled_time"
+        echo "Background job PID: $job_pid"
+        echo "Delay: $delay_seconds seconds"
+    fi
+    
+    return 0
+}
+
+# Create delayed message job
+create_delayed_job() {
+    local message_text="$1"
+    local delay_seconds="$2"
+    
+    # Create a background job
+    {
+        sleep "$delay_seconds"
+        # Re-execute telepipe without scheduling options
+        echo "$message_text" | "$0" --quiet ${FORMAT_MODE:+--format "$FORMAT_MODE"}
+    } &
+    
+    local job_pid=$!
+    local delivery_time=$(date -v "+${delay_seconds}S" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "+${delay_seconds} seconds" "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
+    
+    if [ "$QUIET_MODE" = false ]; then
+        echo "Message scheduled for delivery at: $delivery_time"
+        echo "Background job PID: $job_pid"
+        echo "Delay: $delay_seconds seconds"
+    fi
+    
+    return 0
 }
 
 # Prepare message text based on formatting mode
@@ -388,9 +502,30 @@ if [ "$INTERACTIVE_MODE" = true ]; then
   exit 0
 fi
 
+# Check for conflicting scheduling options
+if [ -n "$SCHEDULE_TIME" ] && [ -n "$DELAY_SECONDS" ]; then
+  echo "Error: Cannot use both --schedule and --delay options simultaneously" >&2
+  exit 1
+fi
+
 # Read from stdin and interpret escape sequences (like \n) for normal mode
 TEXT=$(echo -e "$(cat)")
 
-# Send message and get response using the send_message function
+# Handle scheduled or delayed sending
+if [ -n "$SCHEDULE_TIME" ]; then
+  # Validate and schedule message
+  target_epoch=$(validate_schedule_time "$SCHEDULE_TIME")
+  if [ $? -ne 0 ]; then
+    exit 1
+  fi
+  create_scheduled_job "$TEXT" "$target_epoch"
+  exit $?
+elif [ -n "$DELAY_SECONDS" ]; then
+  # Create delayed message job
+  create_delayed_job "$TEXT" "$DELAY_SECONDS"
+  exit $?
+fi
+
+# Send message immediately and get response using the send_message function
 send_message "$TEXT"
 exit $?

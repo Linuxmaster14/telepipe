@@ -6,6 +6,7 @@ A simple command-line utility to send messages or files to Telegram chat directl
 
 - Send messages to Telegram channel/chat/group directly from command line
 - **Message formatting support** with Markdown and HTML modes
+- **Scheduled message delivery** with specific time or delay options
 - Interactive shell mode for multi-line messaging
 - Automatically switch between message and file mode based on content length
 - Generate shareable Telegram links
@@ -69,6 +70,12 @@ echo 'Check this `inline code` example' | telepipe --format markdown
 # Send code blocks
 echo -e "\`\`\`bash\necho 'Hello World'\nls -la\n\`\`\`" | telepipe --format markdown
 
+# Schedule messages for future delivery
+echo "Daily backup completed" | telepipe --schedule "2025-05-28 09:00:00"
+
+# Send delayed messages
+echo "Server maintenance starting" | telepipe --delay 1800  # 30 minutes delay
+
 # Use it in your scripts
 backup_db() {
   # backup logic here
@@ -86,6 +93,18 @@ monitoring_check() {
     echo "Alert sent"
   fi
 }
+
+# Scheduled maintenance notifications
+schedule_maintenance_alerts() {
+  echo "🔧 Server maintenance starts in 1 hour" | telepipe --delay 3600
+  echo "⚠️ Server maintenance starts in 15 minutes" | telepipe --delay 5400
+  echo "🚨 Server maintenance starting NOW" | telepipe --delay 6900
+}
+
+# Daily report scheduling
+schedule_daily_reports() {
+  echo "📊 Daily system report: $(date)" | telepipe --schedule "$(date -v+1d '+%Y-%m-%d 09:00:00')"
+}
 ```
 
 ## Options
@@ -95,6 +114,8 @@ monitoring_check() {
 - `-q, --quiet` - Quiet mode - suppress output (except errors)
 - `-v, --version` - Show version information and exit
 - `--format MODE` - Set message formatting mode: `markdown`, `html`, or `none`
+- `--schedule TIME` - Schedule message for specific time (YYYY-MM-DD HH:MM:SS)
+- `--delay SECONDS` - Delay message delivery by specified seconds
 
 ## Message Formatting
 
@@ -133,6 +154,45 @@ echo "<b>Alert</b>: Database backup <code>COMPLETED</code>" | telepipe --format 
 
 ### Plain Text Mode (`--format none` or default)
 Sends messages without any formatting - useful when you want to send literal markdown/HTML characters.
+
+## Scheduled Message Delivery
+
+Telepipe supports scheduling messages for future delivery in two ways:
+
+### Absolute Time Scheduling (`--schedule`)
+Schedule a message for a specific date and time:
+
+```bash
+# Schedule a reminder for a specific time
+echo "Meeting starts in 15 minutes" | telepipe --schedule "2025-05-28 14:45:00"
+
+# Schedule daily reports
+echo "Daily backup completed successfully" | telepipe --schedule "2025-05-29 09:00:00"
+
+# Works with formatting
+echo "*Important*: Server maintenance begins now" | telepipe --schedule "2025-05-28 22:00:00" --format markdown
+```
+
+### Relative Time Delay (`--delay`)
+Delay message delivery by a specified number of seconds:
+
+```bash
+# Send reminder in 1 hour (3600 seconds)
+echo "Backup completed" | telepipe --delay 3600
+
+# Send alert in 30 minutes (1800 seconds)
+echo "⚠️ Maintenance window starting soon" | telepipe --delay 1800
+
+# Quick 5-minute delay
+echo "Process finished successfully" | telepipe --delay 300
+```
+
+**Notes:**
+- Scheduled messages run as background processes
+- The process ID is displayed for tracking (unless using `--quiet`)
+- Scheduling cannot be combined with `--interactive` mode
+- Time format for `--schedule` is: `YYYY-MM-DD HH:MM:SS`
+- Scheduled time must be in the future
 
 ### Interactive Mode Formatting
 In interactive mode, you can change formatting on-the-fly:
