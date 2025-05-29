@@ -128,11 +128,11 @@ Uses Telegram's MarkdownV2 formatting with automatic escaping of special charact
 - **Italic**: `_italic text_`
 - **Inline code**: `` `inline code` ``
 - **Code blocks**: 
-  ```
+  ````
   ```language
   code block
   ```
-  ```
+  ````
 
 Example:
 ```bash
