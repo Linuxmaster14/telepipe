@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Telepipe: Send messages to Telegram from your terminal
-VERSION="1.0.3"
+VERSION="1.0.4"
 
 # Configuration file location
 CONFIG_FILE="/etc/telepipe/config"
@@ -12,6 +12,8 @@ INTERACTIVE_MODE=false
 FORMAT_MODE=""
 SCHEDULE_TIME=""
 DELAY_SECONDS=""
+FILE_PATH=""
+VIDEO_PATH=""
 
 # Display help message
 show_help() {
@@ -33,6 +35,8 @@ Options:
   --format MODE     Set message formatting mode: markdown, html, or none
   --schedule TIME   Schedule message for specific time (YYYY-MM-DD HH:MM:SS)
   --delay SECONDS   Delay message delivery by specified seconds
+  --file PATH       Upload a file to Telegram (preserves original filename)
+  --video PATH      Upload a video with streaming support (auto-detects video files)
 
 Formatting Modes:
   markdown          Use MarkdownV2 formatting (supports *bold*, _italic_, \`code\`, \`\`\`code blocks\`\`\`)
@@ -52,6 +56,10 @@ Examples:
   echo "<code>inline code</code> and <pre>code block</pre>" | telepipe --format html
   echo "Backup completed" | telepipe --delay 3600    # Send after 1 hour
   echo "Meeting reminder" | telepipe --schedule "2025-05-28 15:30:00"
+  telepipe --file /path/to/backup.tar.gz            # Upload file
+  telepipe --file movie.mp4 --quiet                 # Upload file silently
+  telepipe --video movie.mp4                        # Upload video with streaming
+  echo "Movie night!" | telepipe --video film.mp4   # Upload video with caption
 
 Configuration: 
   Edit settings in ${CONFIG_FILE}
@@ -118,6 +126,30 @@ while [ "$#" -gt 0 ]; do
             DELAY_SECONDS="$2"
             shift 2
             ;;
+        --file)
+            if [ -z "$2" ] || [[ "$2" == -* ]]; then
+                echo "Error: --file requires a file path" >&2
+                exit 1
+            fi
+            if [ ! -f "$2" ]; then
+                echo "Error: File '$2' does not exist" >&2
+                exit 1
+            fi
+            FILE_PATH="$2"
+            shift 2
+            ;;
+        --video)
+            if [ -z "$2" ] || [[ "$2" == -* ]]; then
+                echo "Error: --video requires a video file path" >&2
+                exit 1
+            fi
+            if [ ! -f "$2" ]; then
+                echo "Error: Video file '$2' does not exist" >&2
+                exit 1
+            fi
+            VIDEO_PATH="$2"
+            shift 2
+            ;;
         *)
             echo "Error: Unknown option '$1'" >&2
             echo "Try 'telepipe --help' for more information." >&2
@@ -127,14 +159,39 @@ while [ "$#" -gt 0 ]; do
 done
 
 # Check if there's input on stdin or interactive mode is set
-if [ -t 0 ] && [ "$INTERACTIVE_MODE" = false ]; then
-    # No stdin and not in interactive mode, show help
+if [ -t 0 ] && [ "$INTERACTIVE_MODE" = false ] && [ -z "$FILE_PATH" ] && [ -z "$VIDEO_PATH" ]; then
+    # No stdin, not in interactive mode, and no file specified, show help
     show_help
 fi
 
 # Validate option combinations
 if [ "$INTERACTIVE_MODE" = true ] && ([ -n "$SCHEDULE_TIME" ] || [ -n "$DELAY_SECONDS" ]); then
     echo "Error: Scheduling options (--schedule, --delay) cannot be used with --interactive mode" >&2
+    exit 1
+fi
+
+if [ -n "$FILE_PATH" ] && [ "$INTERACTIVE_MODE" = true ]; then
+    echo "Error: --file cannot be used with --interactive mode" >&2
+    exit 1
+fi
+
+if [ -n "$VIDEO_PATH" ] && [ "$INTERACTIVE_MODE" = true ]; then
+    echo "Error: --video cannot be used with --interactive mode" >&2
+    exit 1
+fi
+
+if [ -n "$FILE_PATH" ] && ([ -n "$SCHEDULE_TIME" ] || [ -n "$DELAY_SECONDS" ]); then
+    echo "Error: --file cannot be used with scheduling options (--schedule, --delay)" >&2
+    exit 1
+fi
+
+if [ -n "$VIDEO_PATH" ] && ([ -n "$SCHEDULE_TIME" ] || [ -n "$DELAY_SECONDS" ]); then
+    echo "Error: --video cannot be used with scheduling options (--schedule, --delay)" >&2
+    exit 1
+fi
+
+if [ -n "$FILE_PATH" ] && [ -n "$VIDEO_PATH" ]; then
+    echo "Error: Cannot use both --file and --video options simultaneously" >&2
     exit 1
 fi
 
@@ -378,6 +435,116 @@ send_message() {
   return $?
 }
 
+# Function to send a file to Telegram
+send_file() {
+  local file_path="$1"
+  local caption="$2"
+  local response=""
+  local curl_status=0
+  
+  # Get file size for validation
+  local file_size=$(wc -c < "$file_path")
+  local max_file_size=52428800  # 50MB limit for Telegram Bot API
+  
+  if [ "$file_size" -gt "$max_file_size" ]; then
+    echo "Error: File size ($file_size bytes) exceeds Telegram's 50MB limit" >&2
+    return 1
+  fi
+  
+  # Prepare caption if provided
+  local caption_param=""
+  if [ -n "$caption" ]; then
+    caption_param="-F caption=$(printf '%s' "$caption")"
+  fi
+  
+  # Send file to Telegram
+  response=$(curl -s --connect-timeout $TIMEOUT --max-time 300 -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+    -F chat_id="${CHAT_ID}" \
+    -F document=@"${file_path}" \
+    $caption_param)
+  curl_status=$?
+  
+  # Process response and output URL
+  process_response "$response" $curl_status
+  return $?
+}
+
+# Function to send a video to Telegram with streaming support
+send_video() {
+  local video_path="$1"
+  local caption="$2"
+  local response=""
+  local curl_status=0
+  
+  # Get file size for validation
+  local file_size=$(wc -c < "$video_path")
+  local max_file_size=52428800  # 50MB limit for Telegram Bot API
+  
+  if [ "$file_size" -gt "$max_file_size" ]; then
+    echo "Error: Video file size ($file_size bytes) exceeds Telegram's 50MB limit" >&2
+    return 1
+  fi
+  
+  # Get video duration and dimensions if ffprobe is available
+  local duration_param=""
+  local width_param=""
+  local height_param=""
+  
+  if command -v ffprobe >/dev/null 2>&1; then
+    # Try to get video metadata
+    local duration=$(ffprobe -v quiet -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$video_path" 2>/dev/null | cut -d. -f1)
+    local dimensions=$(ffprobe -v quiet -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$video_path" 2>/dev/null)
+    
+    if [ -n "$duration" ] && [ "$duration" -gt 0 ]; then
+      duration_param="-F duration=$duration"
+    fi
+    
+    if [ -n "$dimensions" ]; then
+      local width=$(echo "$dimensions" | cut -d'x' -f1)
+      local height=$(echo "$dimensions" | cut -d'x' -f2)
+      if [ -n "$width" ] && [ -n "$height" ]; then
+        width_param="-F width=$width"
+        height_param="-F height=$height"
+      fi
+    fi
+  fi
+  
+  # Prepare caption if provided
+  local caption_param=""
+  local parse_mode_param=""
+  if [ -n "$caption" ]; then
+    # Apply formatting to caption text
+    local formatted_caption=$(prepare_message_text "$caption")
+    caption_param="-F caption=$(printf '%s' "$formatted_caption")"
+    
+    # Add parse_mode parameter if formatting is enabled for caption
+    case "$FORMAT_MODE" in
+        markdown)
+            parse_mode_param="-F parse_mode=MarkdownV2"
+            ;;
+        html)
+            parse_mode_param="-F parse_mode=HTML"
+            ;;
+    esac
+  fi
+  
+  # Send video to Telegram using sendVideo API
+  response=$(curl -s --connect-timeout $TIMEOUT --max-time 300 -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendVideo" \
+    -F chat_id="${CHAT_ID}" \
+    -F video=@"${video_path}" \
+    $caption_param \
+    $parse_mode_param \
+    $duration_param \
+    $width_param \
+    $height_param \
+    -F supports_streaming=true)
+  curl_status=$?
+  
+  # Process response and output URL
+  process_response "$response" $curl_status
+  return $?
+}
+
 # Interactive mode function
 interactive_mode() {
   echo "Telepipe Interactive Mode v${VERSION}"
@@ -506,6 +673,28 @@ fi
 if [ -n "$SCHEDULE_TIME" ] && [ -n "$DELAY_SECONDS" ]; then
   echo "Error: Cannot use both --schedule and --delay options simultaneously" >&2
   exit 1
+fi
+
+# Handle file upload mode
+if [ -n "$FILE_PATH" ]; then
+  # Read caption from stdin if available (optional)
+  caption=""
+  if [ ! -t 0 ]; then
+    caption=$(cat)
+  fi
+  send_file "$FILE_PATH" "$caption"
+  exit $?
+fi
+
+# Handle video upload mode
+if [ -n "$VIDEO_PATH" ]; then
+  # Read caption from stdin if available (optional)
+  caption=""
+  if [ ! -t 0 ]; then
+    caption=$(cat)
+  fi
+  send_video "$VIDEO_PATH" "$caption"
+  exit $?
 fi
 
 # Read from stdin and interpret escape sequences (like \n) for normal mode

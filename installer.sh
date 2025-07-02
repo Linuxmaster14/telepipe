@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Telepipe Installer Script - Version 1.0.3
+# Telepipe Installer Script - Version 1.0.4
 
 # Clear screen
 clear

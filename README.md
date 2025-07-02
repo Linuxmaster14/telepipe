@@ -5,6 +5,8 @@ A simple command-line utility to send messages or files to Telegram chat directl
 ## Features
 
 - Send messages to Telegram channel/chat/group directly from command line
+- **File upload support** with original filename preservation
+- **Video streaming support** with optimized playback in Telegram
 - **Message formatting support** with Markdown and HTML modes
 - **Scheduled message delivery** with specific time or delay options
 - Interactive shell mode for multi-line messaging
@@ -76,6 +78,19 @@ echo "Daily backup completed" | telepipe --schedule "2025-05-28 09:00:00"
 # Send delayed messages
 echo "Server maintenance starting" | telepipe --delay 1800  # 30 minutes delay
 
+# Upload files with original names
+telepipe --file backup.tar.gz
+telepipe --file /path/to/document.pdf
+telepipe --file archive.zip --quiet
+
+# Upload videos with streaming support
+telepipe --video movie.mp4
+telepipe --video /path/to/video.avi
+
+# Upload files/videos with captions
+echo "Database backup from $(date)" | telepipe --file backup.sql
+echo "Movie night! 🎬" | telepipe --video film.mp4
+
 # Use it in your scripts
 backup_db() {
   # backup logic here
@@ -105,6 +120,25 @@ schedule_maintenance_alerts() {
 schedule_daily_reports() {
   echo "📊 Daily system report: $(date)" | telepipe --schedule "$(date -v+1d '+%Y-%m-%d 09:00:00')"
 }
+
+# Automated backup with file upload
+daily_backup() {
+  local backup_file="backup-$(date +%Y%m%d).tar.gz"
+  tar -czf "$backup_file" /important/data
+  if [ $? -eq 0 ]; then
+    echo "✅ Backup completed successfully at $(date)" | telepipe --file "$backup_file"
+  else
+    echo "❌ Backup failed at $(date)" | telepipe
+  fi
+}
+
+# Log file monitoring with upload
+check_error_logs() {
+  local error_count=$(grep -c "ERROR" /var/log/app.log)
+  if [ "$error_count" -gt 10 ]; then
+    echo "🚨 High error count detected: $error_count errors" | telepipe --file /var/log/app.log
+  fi
+}
 ```
 
 ## Options
@@ -116,6 +150,8 @@ schedule_daily_reports() {
 - `--format MODE` - Set message formatting mode: `markdown`, `html`, or `none`
 - `--schedule TIME` - Schedule message for specific time (YYYY-MM-DD HH:MM:SS)
 - `--delay SECONDS` - Delay message delivery by specified seconds
+- `--file PATH` - Upload a file to Telegram (preserves original filename)
+- `--video PATH` - Upload a video with streaming support (auto-detects video metadata)
 
 ## Message Formatting
 
@@ -193,6 +229,125 @@ echo "Process finished successfully" | telepipe --delay 300
 - Scheduling cannot be combined with `--interactive` mode
 - Time format for `--schedule` is: `YYYY-MM-DD HH:MM:SS`
 - Scheduled time must be in the future
+
+## File Upload
+
+Telepipe can upload files directly to Telegram while preserving their original filenames:
+
+### Basic File Upload
+```bash
+# Upload a file
+telepipe --file backup.tar.gz
+telepipe --file /path/to/document.pdf
+telepipe --file ~/Downloads/movie.mp4
+
+# Upload with quiet mode (no URL output)
+telepipe --file large-backup.zip --quiet
+```
+
+### File Upload with Caption
+You can add a caption to uploaded files by piping text to telepipe:
+```bash
+# Add caption from command line
+echo "Database backup from $(date)" | telepipe --file backup.sql
+
+# Add caption from another command
+hostname | telepipe --file system-report.txt
+
+# Multi-line caption
+echo -e "Weekly Report\nGenerated: $(date)\nSize: $(du -h report.pdf)" | telepipe --file report.pdf
+```
+
+### Practical Examples
+```bash
+# Backup with timestamp caption
+echo "Backup completed at $(date)" | telepipe --file backup-$(date +%Y%m%d).tar.gz
+
+# Log file with context
+echo "Error logs from server crash at $(date)" | telepipe --file /var/log/error.log
+
+# Automated script backup
+tar -czf backup.tar.gz /important/data && echo "Backup created: $(du -h backup.tar.gz)" | telepipe --file backup.tar.gz
+```
+
+**Notes:**
+- Maximum file size: 50MB (Telegram Bot API limit)
+- Supports all file types
+- Original filename is preserved
+- Cannot be combined with `--interactive`, `--schedule`, or `--delay` options
+- Caption text supports the same formatting as regular messages when used with `--format`
+
+## Video Streaming
+
+Telepipe supports optimized video uploads with streaming playback directly in Telegram:
+
+### Basic Video Upload
+```bash
+# Upload video with streaming support
+telepipe --video movie.mp4
+telepipe --video /path/to/video.avi
+telepipe --video recording.mov
+
+# Upload with quiet mode
+telepipe --video large-video.mp4 --quiet
+```
+
+### Video Upload with Caption
+```bash
+# Add caption to video
+echo "Movie night! 🎬" | telepipe --video film.mp4
+echo "Security footage from $(date)" | telepipe --video camera-feed.mp4
+
+# Formatted caption
+echo "*Important*: Training video" | telepipe --video training.mp4 --format markdown
+```
+
+### Advanced Features
+- **Automatic metadata detection**: If `ffprobe` (from FFmpeg) is installed, telepipe automatically detects:
+  - Video duration
+  - Resolution (width/height)
+  - These enhance the streaming experience in Telegram
+
+- **Streaming optimization**: Videos are sent using Telegram's `sendVideo` API with `supports_streaming=true`, enabling:
+  - Inline playback in chat
+  - Better video player interface
+  - Thumbnail generation
+  - Progress bar during playback
+
+### Install FFmpeg for Better Support
+```bash
+# macOS
+brew install ffmpeg
+
+# Ubuntu/Debian
+sudo apt install ffmpeg
+
+# CentOS/RHEL
+sudo yum install ffmpeg
+```
+
+### Practical Examples
+```bash
+# Screen recording with timestamp
+echo "Screen recording from $(date)" | telepipe --video screen-capture.mp4
+
+# Security camera upload
+echo "Motion detected at front door" | telepipe --video security-$(date +%H%M).mp4
+
+# Meeting recording
+echo "📹 Team meeting recording - $(date '+%Y-%m-%d')" | telepipe --video meeting.mp4 --format markdown
+```
+
+**Video vs File Upload:**
+- Use `--video` for: MP4, AVI, MOV, MKV, WebM video files
+- Use `--file` for: Documents, archives, images, audio, or when you want document-style upload
+
+**Notes:**
+- Maximum video size: 50MB (Telegram Bot API limit)
+- Supports common video formats (MP4, AVI, MOV, MKV, WebM, etc.)
+- Automatic streaming optimization
+- Cannot be combined with `--interactive`, `--schedule`, or `--delay` options
+- Caption text supports formatting when used with `--format`
 
 ### Interactive Mode Formatting
 In interactive mode, you can change formatting on-the-fly:
