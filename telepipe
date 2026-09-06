@@ -3,8 +3,25 @@
 # Telepipe: Send messages to Telegram from your terminal
 VERSION="1.0.4"
 
-# Configuration file location
-CONFIG_FILE="/etc/telepipe/config"
+# Configuration file locations. TELEPIPE_CONFIG, when set, is authoritative.
+SYSTEM_CONFIG_FILE="/etc/telepipe/config"
+if [ -n "${XDG_CONFIG_HOME:-}" ]; then
+    USER_CONFIG_FILE="${XDG_CONFIG_HOME}/telepipe/config"
+elif [ -n "${HOME:-}" ]; then
+    USER_CONFIG_FILE="${HOME}/.config/telepipe/config"
+else
+    USER_CONFIG_FILE=""
+fi
+
+CONFIG_IS_EXPLICIT=false
+if [ "${TELEPIPE_CONFIG+x}" = "x" ]; then
+    CONFIG_FILE="$TELEPIPE_CONFIG"
+    CONFIG_IS_EXPLICIT=true
+elif [ -n "$USER_CONFIG_FILE" ] && [ -e "$USER_CONFIG_FILE" ]; then
+    CONFIG_FILE="$USER_CONFIG_FILE"
+else
+    CONFIG_FILE="$SYSTEM_CONFIG_FILE"
+fi
 
 # Initialize mode flags
 QUIET_MODE=false
@@ -61,8 +78,9 @@ Examples:
   telepipe --video movie.mp4                        # Upload video with streaming
   echo "Movie night!" | telepipe --video film.mp4   # Upload video with caption
 
-Configuration: 
-  Edit settings in ${CONFIG_FILE}
+Configuration:
+  Selected file: ${CONFIG_FILE:-<empty TELEPIPE_CONFIG>}
+  Precedence: TELEPIPE_CONFIG, per-user XDG config, system config
 EOF
     exit 0
 }
@@ -195,14 +213,42 @@ if [ -n "$FILE_PATH" ] && [ -n "$VIDEO_PATH" ]; then
     exit 1
 fi
 
-# Check if config exists
-if [[ ! -f "$CONFIG_FILE" ]]; then
-  echo "Error: Configuration file not found at $CONFIG_FILE" >&2
-  exit 1
+# Check whether the selected configuration is usable.
+if [ -z "$CONFIG_FILE" ]; then
+    echo "Error: TELEPIPE_CONFIG is set but empty. Set it to a readable configuration file path or unset it." >&2
+    exit 1
 fi
 
-# Load configuration file
-source "$CONFIG_FILE"
+if [ ! -e "$CONFIG_FILE" ]; then
+    if [ "$CONFIG_IS_EXPLICIT" = true ]; then
+        echo "Error: Configuration file specified by TELEPIPE_CONFIG was not found: $CONFIG_FILE" >&2
+    else
+        echo "Error: No Telepipe configuration file was found." >&2
+        if [ -n "$USER_CONFIG_FILE" ]; then
+            echo "Checked: $USER_CONFIG_FILE" >&2
+        fi
+        echo "Checked: $SYSTEM_CONFIG_FILE" >&2
+        echo "Run installer.sh, or set TELEPIPE_CONFIG to a configuration file path." >&2
+    fi
+    exit 1
+fi
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Error: Configuration path is not a regular file: $CONFIG_FILE" >&2
+    exit 1
+fi
+
+if [ ! -r "$CONFIG_FILE" ]; then
+    echo "Error: Configuration file is not readable: $CONFIG_FILE" >&2
+    echo "Check its ownership and permissions, or select another file with TELEPIPE_CONFIG." >&2
+    exit 1
+fi
+
+# Load configuration file.
+if ! source "$CONFIG_FILE"; then
+    echo "Error: Failed to load configuration file: $CONFIG_FILE" >&2
+    exit 1
+fi
 
 # Check for required configuration
 if [[ -z "$BOT_TOKEN" ]]; then
