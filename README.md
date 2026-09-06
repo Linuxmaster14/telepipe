@@ -25,12 +25,37 @@ git clone https://github.com/linuxmaster14/telepipe.git
 cd telepipe
 ```
 
-2. Run the installation script with an optional topic name:
+2. Choose an installation mode.
+
+For a per-user installation (recommended for normal interactive use), run without
+`sudo`:
 
 ```bash
 chmod +x installer.sh
+./installer.sh
+```
+
+This installs the executable at `$HOME/.local/bin/telepipe` and writes the private
+configuration file (mode `600`) to
+`${XDG_CONFIG_HOME:-$HOME/.config}/telepipe/config`. The installer creates missing
+directories but does not edit shell startup files. If `$HOME/.local/bin` is not on
+your `PATH`, follow the instruction printed at the end of installation. For example:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+For a system-wide installation, run with `sudo`:
+
+```bash
 sudo ./installer.sh
 ```
+
+This installs the executable at `/usr/local/bin/telepipe` and writes the private,
+root-owned configuration file (mode `600`) to `/etc/telepipe/config`. This mode is
+intended for root-run scripts and services. Other users can still use the system-wide
+executable with their own per-user configuration or a readable file selected through
+`TELEPIPE_CONFIG`.
 
 During installation, you'll need to provide:
 1. Your Telegram Bot Token (get it from [BotFather](https://t.me/botfather))
@@ -362,7 +387,24 @@ telepipe --interactive
 
 ## Configuration
 
-The configuration file is located at `/etc/telepipe/config` and includes the following settings:
+Telepipe selects its configuration in this order:
+
+1. The path in `TELEPIPE_CONFIG`, when the variable is set.
+2. `${XDG_CONFIG_HOME:-$HOME/.config}/telepipe/config`, when that file exists.
+3. `/etc/telepipe/config` as the system-wide fallback.
+
+For example, to use a configuration stored elsewhere:
+
+```bash
+TELEPIPE_CONFIG=/path/to/telepipe.conf telepipe --help
+echo "Hello" | TELEPIPE_CONFIG=/path/to/telepipe.conf telepipe
+```
+
+The installer keeps generated configuration files private with mode `600`. If the
+selected file is missing or unreadable, Telepipe reports the path and exits without
+contacting Telegram.
+
+The configuration file includes the following settings:
 
 - `BOT_TOKEN`: Your Telegram bot token from BotFather
 - `CHAT_ID`: ID of the chat where messages will be sent
