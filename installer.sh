@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Telepipe Installer Script - Version 1.0.4
+# Telepipe Installer Script - Version 1.1.0
 
 if [ -t 1 ] && command -v clear >/dev/null 2>&1; then
     clear

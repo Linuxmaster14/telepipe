@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Telepipe: Send messages to Telegram from your terminal
-VERSION="1.0.4"
+VERSION="1.1.0"
 
 # Configuration file locations. TELEPIPE_CONFIG, when set, is authoritative.
 SYSTEM_CONFIG_FILE="/etc/telepipe/config"
